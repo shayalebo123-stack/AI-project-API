@@ -1,0 +1,41 @@
+services:
+  localstack:
+    # Pinned on purpose: recent "latest" images require a LOCALSTACK_AUTH_TOKEN (see README).
+    # Override with LOCALSTACK_IMAGE in your shell or in a .env file.
+    image: ${LOCALSTACK_IMAGE:-localstack/localstack:4.4.0}
+    container_name: localstack
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=dynamodb,sqs
+      - AWS_DEFAULT_REGION=us-east-1
+      - SQS_ENDPOINT_STRATEGY=path
+      - LOCALSTACK_AUTH_TOKEN   # only passed through if set in your shell / .env
+    volumes:
+      # Every script in this folder runs automatically when LocalStack is ready
+      - ./localstack/init:/etc/localstack/init/ready.d:ro
+    healthcheck:
+      # "READY: true" means LocalStack is up AND the init scripts have finished
+      test: ["CMD-SHELL", "curl -sf http://localhost:4566/_localstack/init/ready | grep -Eq '\"READY\": ?true'"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+      start_period: 10s
+
+  app:
+    build: .
+    image: local-ai-agent-api:latest
+    container_name: local-ai-agent-api
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - AWS_REGION=us-east-1
+      - AWS_ENDPOINT_URL=http://localstack:4566
+      - DYNAMODB_TABLE=ChatHistory
+      - SQS_QUEUE_NAME=agent-logs-queue
+      - AGENT_TIMEZONE=UTC
+    depends_on:
+      localstack:
+        condition: service_healthy
+    restart: unless-stopped
